@@ -1,0 +1,3 @@
+[ERROR] NullPointerException at App.java:23
+[WARN] Memory leak detected
+[INFO] Restarting service
