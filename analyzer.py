@@ -1,36 +1,61 @@
 import os
+import time
 from dotenv import load_dotenv
-import openai
+from google import genai
+from google.genai import types, errors
 from prompts import LOG_ANALYSIS_PROMPT
 
 load_dotenv()
-openai.api_key=os.getenv("OPENAI_API_KEY")
+gemini_client = genai.Client()
 
 #Model name
-MODEL = "gpt-4o-mini"
+MODEL = "gemini-3.5-flash-lite"
 
-def split_text(text: str, max_chars: int = 3500):
-    """Split the text into charcter size chunks (keeps each chunk safe for the model)"""
-    return [text[i:i + max_chars] for i in range(0, len(text),max_chars)]
+def split_text(text: str, max_chars: int = 20000):
+    """Split text into chunks on line boundaries so log entries stay whole."""
+    chunks, current, size = [], [], 0
+    for line in text.splitlines(keepends=True):
+        if size + len(line) > max_chars and current:
+            chunks.append("".join(current))
+            current, size = [], 0
+        current.append(line)
+        size += len(line)
+    if current:
+        chunks.append("".join(current))
+        return chunks
 
-def analyze_log(log_text: str) ->str:
-    #split log text into chunks
+#if it hits a rate limit or a temporary server error then it pauses then tries again
+def ask_gemini(prompt: str, retries: int = 3) -> str:
+    """Send one prompt to Gemini, retrying on rate limits and temporary errors."""
+    for attempt in range(retries):
+        try:
+            response = gemini_client.models.generate_content(
+                model=MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are an expert software engineer.",
+                    temperature=0.2,
+                ),
+            )
+            return response.text or ""
+        except errors.APIError as e:
+            if e.code in (429, 503) and attempt < retries - 1:
+                time.sleep(2 ** attempt * 5)    # wait 5s, then 10s, then give up
+                continue
+            raise RuntimeError(f"Gemini API error {e.code}: {e.message}") from e
+
+#splits log into chunks, run each chunk thorugh gemini
+def analyze_log(log_text: str) -> str:
     chunks = split_text(log_text)
-    summaries = []
-    #process each chunk
-    for chunk in chunks:
-        prompt = LOG_ANALYSIS_PROMPT.format(log_excerpt=chunk)
-        #holds output generated from chatpgt
-        response = openai.chat.completions.create(
-            model=MODEL,
-            #change depending on what needs to be debugged
-            messages=[
-                {"role": "system", "content": "You are an expert software engineer."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        #get chatgpt response and store it 
-        summaries.append(response.choices[0].message.content)
-    #combines all of chatgpt response into one string
-    return "\n\n".join(summaries)
+    summaries = [
+        ask_gemini(LOG_ANALYSIS_PROMPT.format(log_excerpt=chunk)) for chunk in chunks
+    ]
+    if len(summaries) == 1:
+        return summaries[0]
+    # Combine the per-chunk summaries into one overall root-cause summary
+    combined = "\n\n".join(summaries)
+    return ask_gemini(
+        "Combine these partial log analyses into one summary of the most likely "
+        "root causes, ordered by importance:\n\n" + combined
+    )
 

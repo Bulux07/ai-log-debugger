@@ -1,6 +1,6 @@
 # AI Log Debugger
 
-A simple Python CLI tool that uses OpenAI GPT to analyze log files and summarize errors
+A simple Python CLI tool that uses Gemini to analyze log files and summarize errors
 
 ---
 
