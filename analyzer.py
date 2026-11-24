@@ -4,12 +4,13 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types, errors
 from prompts import LOG_ANALYSIS_PROMPT
+from log_parser import parse_text
 
 load_dotenv()
 gemini_client = genai.Client()
 
-#Model name
-MODEL = "gemini-3.5-flash-lite"
+# Model name comes from the environment so it can change per deployment
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 def split_text(text: str, max_chars: int = 20000):
     """Split text into chunks on line boundaries so log entries stay whole."""
@@ -22,9 +23,10 @@ def split_text(text: str, max_chars: int = 20000):
         size += len(line)
     if current:
         chunks.append("".join(current))
-        return chunks
+    return chunks  # dedented: empty input now returns [] instead of None
 
-#if it hits a rate limit or a temporary server error then it pauses then tries again
+
+# if it hits a rate limit or a temporary server error, pause then try again
 def ask_gemini(prompt: str, retries: int = 3) -> str:
     """Send one prompt to Gemini, retrying on rate limits and temporary errors."""
     for attempt in range(retries):
@@ -40,13 +42,15 @@ def ask_gemini(prompt: str, retries: int = 3) -> str:
             return response.text or ""
         except errors.APIError as e:
             if e.code in (429, 503) and attempt < retries - 1:
-                time.sleep(2 ** attempt * 5)    # wait 5s, then 10s, then give up
+                time.sleep(2 ** attempt * 5)  # wait 5s, then 10s, then give up
                 continue
             raise RuntimeError(f"Gemini API error {e.code}: {e.message}") from e
 
-#splits log into chunks, run each chunk thorugh gemini
+# splits log into chunks, runs each chunk through Gemini
 def analyze_log(log_text: str) -> str:
     chunks = split_text(log_text)
+    if not chunks:
+        return "No log content to analyze."
     summaries = [
         ask_gemini(LOG_ANALYSIS_PROMPT.format(log_excerpt=chunk)) for chunk in chunks
     ]
@@ -59,3 +63,7 @@ def analyze_log(log_text: str) -> str:
         "root causes, ordered by importance:\n\n" + combined
     )
 
+
+def analyze_text(raw_text: str) -> str:
+    """Shared core used by the API: raw log string in, summary string out."""
+    return analyze_log(parse_text(raw_text))
