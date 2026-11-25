@@ -1,0 +1,3 @@
+#include everything from requirement.txt the main file
+-r requirements.txt
+pytest==9.2.0
