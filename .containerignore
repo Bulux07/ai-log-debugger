@@ -1,4 +1,25 @@
+# Virtual environment & local secrets
 venv/
+.venv/
 .env
-__pycache__/
+
+# Version control & compose
 .git/
+compose.yaml
+
+# Generated / cache files
+**/__pycache__/
+*.pyc
+**/*.pyc
+.pytest_cache/
+
+# Project & repo files
+.gitignore
+Containerfile
+.containerignore
+README.md
+
+# Test tools
+tests/
+pytest.ini
+requirements-dev.txt
