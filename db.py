@@ -15,4 +15,14 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # Each request will open its own session (a short-lived conversation with the DB).
-SessionLocal = sessionmaker(bind=engine, autoflush=False)
+# expire_on_commit=False keeps values like analysis.id readable after commit
+# without an extra query.
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+def get_db():
+    """FastAPI dependency: hand a fresh session to the endpoint, always close it."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
